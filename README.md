@@ -1,4 +1,4 @@
-# Graph of Trace
+# Graph of Trace: Visualizing Execution Trace of Scientific Agents
 
 ![Framework of Graph of Trace](./figures/Framework.png "Framework of Graph of Trace")
 
