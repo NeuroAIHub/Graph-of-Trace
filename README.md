@@ -25,6 +25,14 @@ to a `got.json` file that a frontend can render in real time.
 > specific agent. The [`got.json` schema](#gotjson-schema) is the integration
 > contract for any other frontend.
 
+## 🎬 Demo
+
+https://github.com/user-attachments/assets/5afda4d3-5df8-4ad1-82e6-4f502fd7ffeb
+
+The player above is inline on GitHub. If it does not load, watch it on the
+[built-in video page](https://github.com/NeuroAIHub/Graph-of-Trace-Visualizing-Execution-Trace-of-Scientific-Agents/blob/main/demo.mp4)
+or download [`demo.mp4`](./demo.mp4).
+
 ## How it works
 
 ```mermaid
@@ -274,17 +282,6 @@ A smoke test exercises the full write path with no LLM/network call:
 ```bash
 python -m pytest tests/ -q
 ```
-
-## Demo
-
-https://github.com/user-attachments/assets/5afda4d3-5df8-4ad1-82e6-4f502fd7ffeb
-
-The player above is inline on GitHub. If it does not load, watch it on the
-[built-in video page](https://github.com/NeuroAIHub/Graph-of-Trace-Visualizing-Execution-Trace-of-Scientific-Agents/blob/main/demo.mp4)
-or download [`demo.mp4`](./demo.mp4).
-
-An online demo (an OpenHands integration example) may be available at the project
-page; treat it as an illustration of one host, not a requirement.
 
 ## License
 
