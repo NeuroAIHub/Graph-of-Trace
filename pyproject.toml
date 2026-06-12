@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/Graph-of-Trace-Visualizing-Execution-Trace-of-Scientific-Agents"
+Homepage = "https://github.com/NeuroAIHub/Graph-of-Trace"
 
 [tool.setuptools]
 py-modules = ["server", "tool"]
