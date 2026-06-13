@@ -2,15 +2,95 @@
 
 from __future__ import annotations
 
+import asyncio
+import errno
 import fcntl
 import json
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 log = logging.getLogger("mcp_tools.monitor")
+
+# In-process, per-session locks. asyncio.Lock is FIFO/fair, so concurrent
+# build_trace calls for the SAME session queue and complete in arrival order
+# instead of racing. Keyed by the resolved got.json path (one graph == one key).
+# Cross-process safety is handled separately by the fcntl file lock below.
+_session_locks: Dict[str, "asyncio.Lock"] = {}
+
+# How long to wait for the cross-process file lock before giving up. Worst-case
+# a single in-flight LLM call is ~90s with retries; allow queueing room on top.
+_FLOCK_TIMEOUT_SECONDS = 120.0
+_FLOCK_POLL_SECONDS = 0.05
+
+
+def _get_session_lock(key: str) -> "asyncio.Lock":
+    """Return the asyncio.Lock for this session, creating it on first use.
+
+    Safe without its own guard: the event loop is single-threaded and there is
+    no await between the get and the set, so two coroutines cannot interleave
+    here and create two different locks for the same key.
+    """
+    lock = _session_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[key] = lock
+    return lock
+
+
+async def _acquire_flock_async(
+    lock_f,
+    *,
+    timeout: float = _FLOCK_TIMEOUT_SECONDS,
+    poll: float = _FLOCK_POLL_SECONDS,
+) -> None:
+    """Acquire an exclusive fcntl lock without blocking the event loop.
+
+    Uses LOCK_NB and polls with asyncio.sleep so that while we wait for another
+    process to release the lock, this loop stays free to run other coroutines
+    (e.g. an in-flight LLM call whose callback must fire). A blocking flock here
+    would freeze the whole single-threaded loop and could deadlock.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        try:
+            fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except OSError as exc:
+            if exc.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
+                raise
+            if loop.time() >= deadline:
+                raise TimeoutError(
+                    f"got.json file lock busy for >{timeout:.0f}s; giving up"
+                )
+            await asyncio.sleep(poll)
+
+
+@asynccontextmanager
+async def _session_write_lock(lock_path: Path, session_key: str):
+    """Serialize writes to one session's got.json, in arrival order.
+
+    Two layers:
+    - in-process: a per-session asyncio.Lock (FIFO) makes concurrent
+      build_trace calls for the same session queue and run one at a time,
+      without blocking the event loop.
+    - cross-process: a non-blocking fcntl lock guards against other processes
+      writing the same file. Within one process the asyncio.Lock means the
+      fcntl lock is essentially always free on first try.
+    """
+    async with _get_session_lock(session_key):
+        with lock_path.open("w") as lock_f:
+            await _acquire_flock_async(lock_f)
+            try:
+                yield
+            finally:
+                # Released implicitly when lock_f closes, but be explicit.
+                fcntl.flock(lock_f.fileno(), fcntl.LOCK_UN)
+
 
 
 def _parents_by_id(nodes: List[Dict[str, Any]]) -> Dict[str, List[str]]:
@@ -208,8 +288,7 @@ async def write_got_from_build_trace(
 
     lock_path = session_dir / f"{got_path.name}.lock"
 
-    with lock_path.open("w") as lock_f:
-        fcntl.flock(lock_f.fileno(), fcntl.LOCK_EX)
+    async with _session_write_lock(lock_path, session_key=str(got_path)):
 
         got = _load_or_init(got_path)
         meta: Dict[str, Any] = got["meta"]
